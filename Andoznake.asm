@@ -77,7 +77,7 @@ status 			db 		0 		;0 stop-pause, 1 activo
 ;Variables para el juego
 score 			dw 		0
 hi_score	 	dw 		0
-speed 			db 		0
+speed 			db 		1
 
 ;Variable 'head' de 16 bits. Datos de la cabeza de la serpiente
 ;Valor inicial: 00 00 0010111 01100b
@@ -114,13 +114,19 @@ boton_bg_color	db 		0 		;color del fondo del boton
 ocho			db 		8
 ;Cuando el driver del mouse no esta disponible
 no_mouse		db 	'No se encuentra driver de mouse. Presione [enter] para salir$'
+pausita			db 	'PAUSA$'
+termina			db 	'STOP $'
+jugar			db 	'PLAY $'
+
+
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;;Macros;;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;
 ;clear - Limpia pantalla
 clear macro
-	mov ax,0003h 	;ah = 00h, selecciona modo video
+	mov ax,0003h 	;ah = 00h, selecciona modo video. 80x25 px
 					;al = 03h. Modo texto, 16 colores
 	int 10h		;llama interrupcion 10h con opcion 00h. 
 				;Establece modo de video limpiando pantalla
@@ -199,6 +205,7 @@ endm
 ; Cuando se define el color del carácter, éste se hace en el registro BL:
 ; La parte baja de BL (los 4 bits menos significativos) define el color del carácter
 ; La parte alta de BL (los 4 bits más significativos) define el color de fondo "background" del carácter
+
 imprime_caracter_color macro caracter,color,bg_color
 	mov ah,09h				;preparar AH para interrupcion, opcion 09h
 	mov al,caracter 		;AL = caracter a imprimir
@@ -251,187 +258,348 @@ comprueba_mouse 	macro
 	int 33h			;llama interrupcion 33h para manejo del mouse, devuelve un valor en AX
 					;Si AX = 0000h, no existe el driver. Si AX = FFFFh, existe driver
 endm
-;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;;;;Fin Macros;;;;;;;
-;;;;;;;;;;;;;;;;;;;;;;;;
+;======================================================================================================================
+;======================================================================================================================
+;FIN DE MACROS
+;======================================================================================================================
+;======================================================================================================================
+
+
+
+
+
+
 
 	.code
-inicio:					;etiqueta inicio
-	inicializa_ds_es 	;inicializa registros DS y ES
-	comprueba_mouse		;macro para revisar driver de mouse
-	xor ax,0FFFFh		;compara el valor de AX con FFFFh, si el resultado es zero, entonces existe el driver de mouse
-	jz imprime_ui		;Si existe el driver del mouse, entonces salta a 'imprime_ui'
-	;Si no existe el driver del mouse entonces se muestra un mensaje
-	lea dx,[no_mouse]
-	mov ax,0900h	;opcion 9 para interrupcion 21h
-	int 21h			;interrupcion 21h. Imprime cadena.
-	jmp fin			;salta a 'fin'
-imprime_ui:
-	clear 					;limpia pantalla
-	oculta_cursor_teclado	;oculta cursor del mouse
-	apaga_cursor_parpadeo 	;Deshabilita parpadeo del cursor
-	call DIBUJA_UI 			;procedimiento que dibuja marco de la interfaz
-	muestra_cursor_mouse 	;hace visible el cursor del mouse
-	posiciona_cursor_mouse 10d,0d	;establece la posición del mouse en la posición
-;Revisar que el boton izquierdo del mouse no esté presionado
-;Si el botón no está suelto, no continúa
-mouse_no_clic:
-	lee_mouse
-	test bx,0001h
-	jnz mouse_no_clic
-;Lee el mouse y avanza hasta que se haga clic en el boton izquierdo
-mouse:
-	lee_mouse
-conversion_mouse:
-	;Leer la posicion del mouse y hacer la conversion a resolucion
-	;80x25 (columnas x renglones) en modo texto
-	mov ax,dx 			;Copia DX en AX. DX es un valor entre 0 y 199 (renglon)
-	div [ocho] 			;Division de 8 bits
-						;divide el valor del renglon en resolucion 640x200 en donde se encuentra el mouse
-						;para obtener el valor correspondiente en resolucion 80x25
-	xor ah,ah 			;Descartar el residuo de la division anterior
-	mov dx,ax 			;Copia AX en DX. AX es un valor entre 0 y 24 (renglon)
+		inicio:					;etiqueta inicio
+			inicializa_ds_es 	;inicializa registros DS y ES
+			comprueba_mouse		;macro para revisar driver de mouse
+			xor ax,0FFFFh		;compara el valor de AX con FFFFh, si el resultado es zero, entonces existe el driver de mouse
+			jz imprime_ui		;Si existe el driver del mouse, entonces salta a 'imprime_ui'
+			;Si no existe el driver del mouse entonces se muestra un mensaje
+			lea dx,[no_mouse]
+			mov ax,0900h	;opcion 9 para interrupcion 21h
+			int 21h			;interrupcion 21h. Imprime cadena.
+			jmp fin			;salta a 'fin'
 
-	mov ax,cx 			;Copia CX en AX. CX es un valor entre 0 y 639 (columna)
-	div [ocho] 			;Division de 8 bits
-						;divide el valor de la columna en resolucion 640x200 en donde se encuentra el mouse
-						;para obtener el valor correspondiente en resolucion 80x25
-	xor ah,ah 			;Descartar el residuo de la division anterior
-	mov cx,ax 			;Copia AX en CX. AX es un valor entre 0 y 79 (columna)
+		imprime_ui:
+			clear 					;limpia pantalla y establece modo video en AX
+			oculta_cursor_teclado	;oculta cursor del mouse
+			apaga_cursor_parpadeo 	;Deshabilita parpadeo del cursor
+			call DIBUJA_UI 			;procedimiento que dibuja marco de la interfaz
+			muestra_cursor_mouse 	;hace visible el cursor del mouse
+			posiciona_cursor_mouse 10d,0d	;establece la posición del mouse en la posición
+		;Revisar que el boton izquierdo del mouse no esté presionado
+		;Si el botón no está suelto, no continúa
 
-	test bx,0001h 		;Para revisar si el boton izquierdo del mouse fue presionado
-	jz mouse 			;Si el boton izquierdo no fue presionado, vuelve a leer el estado del mouse
+		mouse_no_clic:
+			lee_mouse
+			test bx,0001h
+			jnz mouse_no_clic
+		;Lee el mouse y avanza hasta que se haga clic en el boton izquierdo
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;Aqui va la lógica de la posicion del mouse;
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-	;Si el mouse fue presionado en el renglon 0
-	;se va a revisar si fue dentro del boton [X]
-	cmp dx,0
-	je boton_x
+		mouse:
+			lee_mouse
 
-	jmp mouse_no_clic
-boton_x:
-	jmp boton_x1
+		conversion_mouse:
+			;Leer la posicion del mouse y hacer la conversion a resolucion
+			;80x25 (columnas x renglones) en modo texto
+			mov ax,dx 			;Copia DX en AX. DX es un valor entre 0 y 199 (renglon)
+			div [ocho] 			;Division de 8 bits
+								;divide el valor del renglon en resolucion 640x200 en donde se encuentra el mouse
+								;para obtener el valor correspondiente en resolucion 80x25
+			xor ah,ah 			;Descartar el residuo de la division anterior
+			mov dx,ax 			;Copia AX en DX. AX es un valor entre 0 y 24 (renglon)
 
-;Lógica para revisar si el mouse fue presionado en [X]
-;[X] se encuentra en renglon 0 y entre columnas 17 y 19
-boton_x1:
-	cmp cx,17
-	jge boton_x2
-	jmp mouse_no_clic
-boton_x2:
-	cmp cx,19
-	jbe boton_x3
-	jmp mouse_no_clic
-boton_x3:
-	;Se cumplieron todas las condiciones
-	jmp salir
+			mov ax,cx 			;Copia CX en AX. CX es un valor entre 0 y 639 (columna)
+			div [ocho] 			;Division de 8 bits
+								;divide el valor de la columna en resolucion 640x200 en donde se encuentra el mouse
+								;para obtener el valor correspondiente en resolucion 80x25
+			xor ah,ah 			;Descartar el residuo de la division anterior
+			mov cx,ax 			;Copia AX en CX. AX es un valor entre 0 y 79 (columna)
 
-;Si no se encontró el driver del mouse, muestra un mensaje y el usuario debe salir tecleando [enter]
-fin:
-	mov ah,08h
-	int 21h 		;opción 08h int 21h. Lee carácter del teclado sin eco
-	cmp al,0Dh		;compara la entrada de teclado si fue [enter]
-	jnz fin 		;Sale del ciclo hasta que presiona la tecla [enter]
+			test bx,0001h 		;Para revisar si el boton izquierdo del mouse fue presionado
+			jz mouse 			;Si el boton izquierdo no fue presionado, vuelve a leer el estado del mouse
 
-salir:				;inicia etiqueta salir
-	clear 			;limpia pantalla
-	mov ax,4C00h	;AH = 4Ch, opción para terminar programa, AL = 0 Exit Code, código devuelto al finalizar el programa
-	int 21h			;señal 21h de interrupción, pasa el control al sistema operativo
+			;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+			;Aqui va la lógica de la posicion del mouse;
+			;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+			;Si se presiona SALIR
+			cmp dx,0
+			je boton_x
+			
+
+			;Si se da clic sobre botones de speed
+			cmp dx,11
+			je vel
+			cmp dx,12
+			je vel
+			cmp dx,13
+			je vel
+
+			;Si se da clic sobre botones de pausa,stop,play
+			cmp dx,19
+			je flujo
+			cmp dx,20
+			je flujo
+			cmp dx,21
+			je flujo
+
+			jmp mouse_no_clic
+
+
+		;Lógica para revisar si el mouse fue presionado en [SALIR]
+		;[SALIR] se encuentra en renglon 0 y entre columnas 13 y 19
+		boton_x:
+			jmp boton_x1
+
+		boton_x1:
+			cmp cx,13
+			jge boton_x2
+			jmp mouse_no_clic
+
+		boton_x2:
+			cmp cx,19
+			jbe boton_x3
+			jmp mouse_no_clic
+
+		boton_x3:
+			;Se cumplieron todas las condiciones
+			jmp salir
+
+		;Lógica para revisar si el mouse presiona flechas
+		;Ambos botones están en los renglones 11 - 13
+		vel:
+			jmp vel1
+
+		vel1:
+			cmp cx,12
+			jge vel2
+			cmp cx,15
+			jge vel2
+			jmp mouse_no_clic
+
+		vel2:
+			cmp cx,15
+			jz	mouse_no_clic
+			cmp cx,14
+			jbe velAbajo
+			cmp cx,18
+			jbe velArriba
+			jmp mouse_no_clic
+
+		velAbajo:
+			;Se cumplieron todas las condiciones de izquierda
+			;Si speed es 0
+			cmp [speed],1
+			jz mouse_no_clic
+			dec [speed]
+			call IMPRIME_SPEED
+			jmp mouse_no_clic
+
+		velArriba:
+			;Se cumplieron todas las condiciones de derecha
+			inc [speed]
+			call IMPRIME_SPEED
+			jmp mouse_no_clic
+
+		;Lógica para revisar botones de control (pausa, stop y play)
+		;Ambos botones están en los renglones 19 - 21
+		flujo:
+			jmp flujo1
+
+		flujo1:
+			cmp cx,3
+			jge flujo2
+			cmp cx,9
+			jge flujo2
+			cmp cx,15
+			jge flujo2
+			jmp mouse_no_clic
+
+		flujo2:
+			cmp cx,6
+			jz	mouse_no_clic
+			cmp cx,7
+			jz	mouse_no_clic
+			cmp cx,8
+			jz	mouse_no_clic
+			cmp cx,12
+			jz	mouse_no_clic
+			cmp cx,13
+			jz	mouse_no_clic
+			cmp cx,14
+			jz	mouse_no_clic
+
+			cmp cx,6
+			jbe PAUSA
+			cmp cx,12
+			jbe STOP
+			cmp cx,17
+			jbe PLAY
+			jmp mouse_no_clic
+
+		PAUSA:
+			;Se cumplieron todas las condiciones de izquierda
+			;Si speed es 0
+			posiciona_cursor 11,120
+			imprime_cadena_color pausita,5,cGrisClaro,bgNegro
+			jmp mouse_no_clic
+
+		STOP:
+			;Se cumplieron todas las condiciones de derecha
+			posiciona_cursor 11,120
+			imprime_cadena_color termina,5,cGrisClaro,bgNegro
+			jmp mouse_no_clic
+
+		PLAY:
+			;Se cumplieron todas las condiciones de derecha
+			posiciona_cursor 11,120
+			imprime_cadena_color jugar,5,cGrisClaro,bgNegro
+			jmp mouse_no_clic
+
+		;Si no se encontró el driver del mouse, muestra un mensaje y el usuario debe salir tecleando [enter]
+		fin:
+			mov ah,08h
+			int 21h 		;opción 08h int 21h. Lee carácter del teclado sin eco
+			cmp al,0Dh		;compara la entrada de teclado si fue [enter]
+			jnz fin 		;Sale del ciclo hasta que presiona la tecla [enter]
+
+		salir:				;inicia etiqueta salir
+			clear 			;limpia pantalla
+			mov ax,4C00h	;AH = 4Ch, opción para terminar programa, AL = 0 Exit Code, código devuelto al finalizar el programa
+			int 21h			;señal 21h de interrupción, pasa el control al sistema operativo
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;PROCEDIMIENTOS;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+
 	DIBUJA_UI proc
 		;imprimir esquina superior izquierda del marco
 		posiciona_cursor 0,0
-		imprime_caracter_color marcoEsqSupIzq,cAmarillo,bgNegro
+		imprime_caracter_color marcoEsqSupIzq,cAzulClaro,bgNegro
 		
 		;imprimir esquina superior derecha del marco
 		posiciona_cursor 0,79
-		imprime_caracter_color marcoEsqSupDer,cAmarillo,bgNegro
+		imprime_caracter_color marcoEsqSupDer,cAzulClaro,bgNegro
 		
 		;imprimir esquina inferior izquierda del marco
 		posiciona_cursor 24,0
-		imprime_caracter_color marcoEsqInfIzq,cAmarillo,bgNegro
+		imprime_caracter_color marcoEsqInfIzq,cAzulClaro,bgNegro
 		
 		;imprimir esquina inferior derecha del marco
 		posiciona_cursor 24,79
-		imprime_caracter_color marcoEsqInfDer,cAmarillo,bgNegro
+		imprime_caracter_color marcoEsqInfDer,cAzulClaro,bgNegro
 		
 		;imprimir marcos horizontales, superior e inferior
 		mov cx,78 		;CX = 004Eh => CH = 00h, CL = 4Eh 
-	marcos_horizontales:
-		mov [col_aux],cl
-		;Superior
-		posiciona_cursor 0,[col_aux]
-		imprime_caracter_color marcoHor,cAmarillo,bgNegro
-		;Inferior
-		posiciona_cursor 24,[col_aux]
-		imprime_caracter_color marcoHor,cAmarillo,bgNegro
-		mov cl,[col_aux]
-		loop marcos_horizontales
 
-		;imprimir marcos verticales, derecho e izquierdo
-		mov cx,23 		;CX = 0017h => CH = 00h, CL = 17h 
-	marcos_verticales:
-		mov [ren_aux],cl
-		;Izquierdo
-		posiciona_cursor [ren_aux],0
-		imprime_caracter_color marcoVer,cAmarillo,bgNegro
-		;Inferior
-		posiciona_cursor [ren_aux],79
-		imprime_caracter_color marcoVer,cAmarillo,bgNegro
-		;Interno
-		posiciona_cursor [ren_aux],area_controles_ancho
-		imprime_caracter_color marcoVer,cAmarillo,bgNegro
-		
-		mov cl,[ren_aux]
-		loop marcos_verticales
+		marcos_horizontales:;Imprime de derecha a izquierda y alternadamente el =
+			mov [col_aux],cl
+			;Superior
+			posiciona_cursor 0,[col_aux]
+			imprime_caracter_color marcoHor,cAzulClaro,bgNegro
+			;Inferior
+			posiciona_cursor 24,[col_aux]
+			imprime_caracter_color marcoHor,cAzulClaro,bgNegro
+			mov cl,[col_aux]
+			loop marcos_horizontales
 
-		;imprimir marcos horizontales internos
-		mov cx,area_controles_ancho 		;CX = 0014h => CH = 00h, CL = 14h 
-	marcos_horizontales_internos:
-		mov [col_aux],cl
-		;Interno izquierdo (marcador player 1)
-		posiciona_cursor 8,[col_aux]
-		imprime_caracter_color marcoHor,cAmarillo,bgNegro
+			;imprimir marcos verticales, derecho e izquierdo
+			mov cx,23 		;CX = 0017h => CH = 00h, CL = 17h 
 
-		;Interno derecho (marcador player 2)
-		posiciona_cursor 16,[col_aux]
-		imprime_caracter_color marcoHor,cAmarillo,bgNegro
+		marcos_verticales:;Imprime de abajo a arriba a y alternadamente el ||.
+			mov [ren_aux],cl
+			;Izquierdo
+			posiciona_cursor [ren_aux],0
+			imprime_caracter_color marcoVer,cAzulClaro,bgNegro
+			;Inferior
+			posiciona_cursor [ren_aux],79
+			imprime_caracter_color marcoVer,cAzulClaro,bgNegro
+			
+			;Interno
+			posiciona_cursor [ren_aux],area_controles_ancho
+			imprime_caracter_color marcoVer,cAzulClaro,bgNegro
+			mov cl,[ren_aux]
+			loop marcos_verticales
 
-		mov cl,[col_aux]
-		loop marcos_horizontales_internos
+			;imprimir marcos horizontales internos
+			mov cx,area_controles_ancho 		;CX = 0014h => CH = 00h, CL = 14h 
 
-		;imprime intersecciones internas	
-		posiciona_cursor 0,area_controles_ancho
-		imprime_caracter_color marcoCruceVerSup,cAmarillo,bgNegro
-		posiciona_cursor 24,area_controles_ancho
-		imprime_caracter_color marcoCruceVerInf,cAmarillo,bgNegro
+		marcos_horizontales_internos:
+			mov [col_aux],cl
 
-		posiciona_cursor 8,0
-		imprime_caracter_color marcoCruceHorIzq,cAmarillo,bgNegro
-		posiciona_cursor 8,area_controles_ancho
-		imprime_caracter_color marcoCruceHorDer,cAmarillo,bgNegro
+			;Interno izquierdo (marcador player 1)
+			posiciona_cursor 4,[col_aux]
+			imprime_caracter_color marcoHor,cAzulClaro,bgNegro
 
-		posiciona_cursor 16,0
-		imprime_caracter_color marcoCruceHorIzq,cAmarillo,bgNegro
-		posiciona_cursor 16,area_controles_ancho
-		imprime_caracter_color marcoCruceHorDer,cAmarillo,bgNegro
+			;Interno izquierdo (marcador player 1)
+			posiciona_cursor 8,[col_aux]
+			imprime_caracter_color marcoHor,cAzulClaro,bgNegro
 
-		;imprimir [X] para cerrar programa
-		posiciona_cursor 0,17
-		imprime_caracter_color '[',cAmarillo,bgNegro
-		posiciona_cursor 0,18
-		imprime_caracter_color 'X',cRojoClaro,bgNegro
-		posiciona_cursor 0,19
-		imprime_caracter_color ']',cAmarillo,bgNegro
+			;Interno derecho (marcador player 2)
+			posiciona_cursor 16,[col_aux]
+			imprime_caracter_color marcoHor,cAzulClaro,bgNegro
 
-		;imprimir título
-		posiciona_cursor 0,38
-		imprime_cadena_color [nameStr],5,cAmarillo,bgNegro
+			mov cl,[col_aux]
+			loop marcos_horizontales_internos
+
+			;imprime intersecciones internas	
+			posiciona_cursor 0,area_controles_ancho
+			imprime_caracter_color marcoCruceVerSup,cAzulClaro,bgNegro
+			posiciona_cursor 24,area_controles_ancho
+			imprime_caracter_color marcoCruceVerInf,cAzulClaro,bgNegro
+
+			posiciona_cursor 4,0
+			imprime_caracter_color marcoCruceHorIzq,cAzulClaro,bgNegro
+			posiciona_cursor 4,area_controles_ancho
+			imprime_caracter_color marcoCruceHorDer,cAzulClaro,bgNegro
+
+			posiciona_cursor 8,0
+			imprime_caracter_color marcoCruceHorIzq,cAzulClaro,bgNegro
+			posiciona_cursor 8,area_controles_ancho
+			imprime_caracter_color marcoCruceHorDer,cAzulClaro,bgNegro
+
+			posiciona_cursor 16,0
+			imprime_caracter_color marcoCruceHorIzq,cAzulClaro,bgNegro
+			posiciona_cursor 16,area_controles_ancho
+			imprime_caracter_color marcoCruceHorDer,cAzulClaro,bgNegro
+
+			;imprimir [X] para cerrar programa
+			posiciona_cursor 0,13
+			imprime_caracter_color '[',cAzulClaro,bgNegro
+			posiciona_cursor 0,14
+			imprime_caracter_color 'S',cRojoClaro,bgNegro
+			posiciona_cursor 0,15
+			imprime_caracter_color 'A',cRojoClaro,bgNegro
+			posiciona_cursor 0,16
+			imprime_caracter_color 'L',cRojoClaro,bgNegro
+			posiciona_cursor 0,17
+			imprime_caracter_color 'I',cRojoClaro,bgNegro
+			posiciona_cursor 0,18
+			imprime_caracter_color 'R',cRojoClaro,bgNegro
+			posiciona_cursor 0,19
+			imprime_caracter_color ']',cAzulClaro,bgNegro
+
+			;imprimir título
+			posiciona_cursor 0,38
+			imprime_cadena_color [nameStr],5,cCyanClaro,bgNegro
 
 		call IMPRIME_DATOS_INICIALES
 		ret
@@ -441,7 +609,7 @@ salir:				;inicia etiqueta salir
 	DATOS_INICIALES proc
 		mov [score],0
 		mov [hi_score],0
-		mov [speed],0
+		mov [speed],1
 		call IMPRIME_SCORE
 		call IMPRIME_HISCORE
 		call IMPRIME_SPEED
@@ -453,15 +621,15 @@ salir:				;inicia etiqueta salir
 		call DATOS_INICIALES
 
 		;imprime cadena 'HI-SCORE'
-		posiciona_cursor 3,2
+		posiciona_cursor 2,3
 		imprime_cadena_color recordStr,8,cGrisClaro,bgNegro
 
 		;imprime cadena 'SCORE'
-		posiciona_cursor 5,2
+		posiciona_cursor 6,5
 		imprime_cadena_color scoreStr,5,cGrisClaro,bgNegro
 
 		;imprime cadena 'SPEED'
-		posiciona_cursor 12,2
+		posiciona_cursor 12,3
 		imprime_cadena_color speedStr,5,cGrisClaro,bgNegro
 		
 		;imprime viborita
@@ -512,7 +680,7 @@ salir:				;inicia etiqueta salir
 	;Establece las coordenadas en variables auxiliares en donde comienza a imprimir.
 	;Pone el valor en BX que se imprime con el procedimiento IMPRIME_SCORE_BX
 	IMPRIME_SCORE proc
-		mov [ren_aux],5
+		mov [ren_aux],2
 		mov [col_aux],12
 		mov bx,[score]
 		call IMPRIME_SCORE_BX
@@ -523,37 +691,37 @@ salir:				;inicia etiqueta salir
 	;Establece las coordenadas en variables auxiliares en donde comienza a imprimir.
 	;Pone el valor en BX que se imprime con el procedimiento IMPRIME_SCORE_BX
 	IMPRIME_HISCORE proc
-		mov [ren_aux],3
+		mov [ren_aux],6
 		mov [col_aux],12
 		mov bx,[hi_score]
 		call IMPRIME_SCORE_BX
 		ret
 	endp
 
-	;Imprime el valor contenido en BX
+	;Imprime el valor contenido en BX. El score tiene que estar en BX.
 	;Se imprime un valor de 5 dígitos. Si el número es menor a 10000, se completan los 5 dígitos con ceros a la izquierda
 	IMPRIME_SCORE_BX proc
 		mov ax,bx 		;AX = BX
 		mov cx,5 		;CX = 5. Se realizan 5 divisiones entre 10 para obtener los 5 dígitos
-	;En el bloque div10, se obtiene los dígitos del número haciendo divisiones entre 10 y se almacenan en la pila
-	div10:
-		xor dx,dx
-		div [diez]
-		push dx
-		loop div10
-		mov cx,5
-	;En el bloque imprime_digito, se recuperan los dígitos anteriores calculados para imprimirse en pantalla.
-	imprime_digito:
-		mov [conta],cl
-		posiciona_cursor [ren_aux],[col_aux]
-		pop dx
-		or dl,30h
-		imprime_caracter_color dl,cBlanco,bgNegro
-		xor ch,ch
-		mov cl,[conta]
-		inc [col_aux]
-		loop imprime_digito
-		ret
+		;En el bloque div10, se obtiene los dígitos del número haciendo divisiones entre 10 y se almacenan en la pila
+		div10:
+			xor dx,dx
+			div [diez]
+			push dx
+			loop div10
+			mov cx,5
+		;En el bloque imprime_digito, se recuperan los dígitos anteriores calculados para imprimirse en pantalla.
+		imprime_digito:
+			mov [conta],cl
+			posiciona_cursor [ren_aux],[col_aux]
+			pop dx
+			or dl,30h
+			imprime_caracter_color dl,cBlanco,bgNegro
+			xor ch,ch
+			mov cl,[conta]
+			inc [col_aux]
+			loop imprime_digito
+			ret
 	endp
 
 	;Procedimiento para imprimir el valor de SPEED en pantalla
@@ -568,22 +736,22 @@ salir:				;inicia etiqueta salir
 		cmp [speed],100d
 		jb continua
 		mov [speed],99d
-	continua:
-		;posiciona el cursor en la posición a imprimir
-		posiciona_cursor [ren_aux],[col_aux]
-		;Se convierte el valor de 'speed' a ASCII
-		xor ah,ah 		;AH = 00h
-		mov al,[speed] 	;AL = [speed]
-		aam 			;AH: Decenas, AL: Unidades
-		push ax 		;guarda AX temporalmente
-		mov dl,ah 		;Decenas en DL
-		or dl,30h 		;Convierte BCD a su ASCII
-		imprime_caracter_color dl,cBlanco,bgNegro
-		inc [col_aux] 	;Desplaza la columna a la derecha
-		posiciona_cursor [ren_aux],[col_aux]
-		pop dx 			;recupera valor de la pila
-		or dl,30h  	 	;Convierte BCD a su ASCII, DL están las unidades
-		imprime_caracter_color dl,cBlanco,bgNegro
+		continua:
+			;posiciona el cursor en la posición a imprimir
+			posiciona_cursor [ren_aux],[col_aux]
+			;Se convierte el valor de 'speed' a ASCII
+			xor ah,ah 		;AH = 00h
+			mov al,[speed] 	;AL = [speed]
+			aam 			;AH: Decenas, AL: Unidades
+			push ax 		;guarda AX temporalmente
+			mov dl,ah 		;Decenas en DL
+			or dl,30h 		;Convierte BCD a su ASCII
+			imprime_caracter_color dl,cBlanco,bgNegro
+			inc [col_aux] 	;Desplaza la columna a la derecha
+			posiciona_cursor [ren_aux],[col_aux]
+			pop dx 			;recupera valor de la pila
+			or dl,30h  	 	;Convierte BCD a su ASCII, DL están las unidades
+			imprime_caracter_color dl,cBlanco,bgNegro
 		ret
 	endp
 
@@ -597,7 +765,7 @@ salir:				;inicia etiqueta salir
 	;Imprime objeto en pantalla
 	IMPRIME_ITEM proc
 		posiciona_cursor [item_ren],[item_col]
-		imprime_caracter_color 3,cVerdeClaro,bgNegro
+		imprime_caracter_color 3,cRojoClaro,bgNegro
 		ret
 	endp
 
@@ -611,7 +779,7 @@ salir:				;inicia etiqueta salir
 		shr dx,5
 		mov [col_aux],dl
 		posiciona_cursor [ren_aux],[col_aux]
-		imprime_caracter_color 2,cCyanClaro,bgNegro
+		imprime_caracter_color 2,cVerdeClaro,bgNegro
 		ret
 	endp
 
@@ -621,22 +789,22 @@ salir:				;inicia etiqueta salir
 	;Se imprimen todos los elementos iniciando en el primero, hasta que se encuentre un 0 
 	IMPRIME_TAIL proc
 		lea bx,[tail]
-	loop_tail:
-		push bx
-		mov ax,[bx]
-		mov dx,ax
-		and ax,11111b
-		mov [ren_aux],al
-		and dx,111111100000b
-		shr dx,5
-		mov [col_aux],dl
-		posiciona_cursor [ren_aux],[col_aux]
-		imprime_caracter_color 254,cCyanClaro,bgNegro
-		pop bx
-		add bx,2
-		cmp word ptr [bx],0
-		jne loop_tail
-		ret 
+		loop_tail:
+			push bx
+			mov ax,[bx]
+			mov dx,ax
+			and ax,11111b
+			mov [ren_aux],al
+			and dx,111111100000b
+			shr dx,5
+			mov [col_aux],dl
+			posiciona_cursor [ren_aux],[col_aux]
+			imprime_caracter_color 254,cVerdeClaro,bgNegro
+			pop bx
+			add bx,2
+			cmp word ptr [bx],0
+			jne loop_tail
+			ret 
 	endp
 
 	;Borra la serpiente para reimprimirla en una posición actualizada
