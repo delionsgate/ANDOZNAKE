@@ -258,22 +258,11 @@ lee_mouse	macro
 	int 33h
 endm
 
-lee_teclado macro 
-	mov ah,00h 		;Leer caracter
-	int 16h			;Interrupción de teclado
-endm
-
 ;comprueba_mouse - Revisa si el driver del mouse existe
 comprueba_mouse 	macro
 	mov ax,0		;opcion 0
 	int 33h			;llama interrupcion 33h para manejo del mouse, devuelve un valor en AX
 					;Si AX = 0000h, no existe el driver. Si AX = FFFFh, existe driver
-endm
-
-limpia_buffer macro
-    mov ah,0Ch
-    xor al,al
-    int 21h
 endm
 
 temporizador macro
@@ -475,39 +464,35 @@ endm
 
 
 		PAUSA:
-			;Se cumplieron todas las condiciones de izquierda
+			;Se cumplieron todas las condiciones de pausa
 			;Si speed es 0
 			posiciona_cursor 11,120
 			imprime_cadena_color pausita,10,cGrisClaro,bgNegro
 			jmp mouse_no_clic
 
 		STOP:
-			;Se cumplieron todas las condiciones de derecha
+			;Se cumplieron todas las condiciones de stop
 			posiciona_cursor 11,120
 			imprime_cadena_color termina,10,cGrisClaro,bgNegro
 			jmp mouse_no_clic
 
 		PLAY:
-			;Se cumplieron todas las condiciones de derecha
-			limpia_buffer
+			;Se cumplieron todas las condiciones de play
+			inc head_x
 			temporizador
 			call IMPRIME_PLAYER
-            in al,64h       ;Revisa estatus del teclado
-            cmp al,10b
-            je PLAY
+            call lee_teclado
 
-            in al,60h       ;al hold the scan code  
-
-            lee_teclado
-			cmp al,100; Tecla derecha
+            ;Una vez leído el teclado, se evalúa la tecla presionada
+			cmp bp,32; Tecla derecha
 			jz derecha
-			cmp al,97; Tecla izquierda
+			cmp bp,30; Tecla izquierda
 			jz izquierda
-			cmp al,119; Tecla arriba
+			cmp bp,17; Tecla arriba
 			jz arriba
-			cmp al,115; Tecla abajo
+			cmp bp,31; Tecla abajo
 			jz abajo
-			cmp al,112; La tecla "p" pausa el juego. Se deja de leer teclado y se lee mouse
+			cmp bp,25; La tecla "p" pausa el juego. Se deja de leer teclado y se lee mouse
 			jz PAUSA
 
 			jmp PLAY
@@ -516,34 +501,93 @@ endm
 			posiciona_cursor 11,120
 			imprime_cadena_color der,10,cGrisClaro,bgNegro
 
+			temporizador
+			call IMPRIME_PLAYER
+
+            call lee_teclado
+			;Una vez leído el teclado, se evalúa la tecla presionada
+			cmp bp,32; Tecla derecha
+			jz derecha
+			cmp bp,30; Tecla izquierda
+			jz izquierda
+			cmp bp,17; Tecla arriba
+			jz arriba
+			cmp bp,31; Tecla abajo
+			jz abajo
+			cmp bp,25; La tecla "p" pausa el juego. Se deja de leer teclado y se lee mouse
+			jz PAUSA
 
 			inc head_x
-			call IMPRIME_HEAD
-			jmp PLAY
+			jmp derecha
 
 		izquierda:
 			posiciona_cursor 11,120
 			imprime_cadena_color izq,10,cGrisClaro,bgNegro
 
+			temporizador
+			call IMPRIME_PLAYER
+
+            call lee_teclado
+			;Una vez leído el teclado, se evalúa la tecla presionada
+			cmp bp,32; Tecla derecha
+			jz derecha
+			cmp bp,30; Tecla izquierda
+			jz izquierda
+			cmp bp,17; Tecla arriba
+			jz arriba
+			cmp bp,31; Tecla abajo
+			jz abajo
+			cmp bp,25; La tecla "p" pausa el juego. Se deja de leer teclado y se lee mouse
+			jz PAUSA
+
 			dec head_x
-			call IMPRIME_HEAD
-			jmp PLAY
+			jmp izquierda
 
 		arriba:
 			posiciona_cursor 11,120
 			imprime_cadena_color arribita,10,cGrisClaro,bgNegro
 
+			temporizador
+			call IMPRIME_PLAYER
+
+            call lee_teclado
+			;Una vez leído el teclado, se evalúa la tecla presionada
+			cmp bp,32; Tecla derecha
+			jz derecha
+			cmp bp,30; Tecla izquierda
+			jz izquierda
+			cmp bp,17; Tecla arriba
+			jz arriba
+			cmp bp,31; Tecla abajo
+			jz abajo
+			cmp bp,25; La tecla "p" pausa el juego. Se deja de leer teclado y se lee mouse
+			jz PAUSA
+
 			dec head_y
-			call IMPRIME_HEAD
-			jmp PLAY
+			jmp arriba
 
 		abajo:
 			posiciona_cursor 11,120
 			imprime_cadena_color abajito,10,cGrisClaro,bgNegro
 
+			temporizador
+			call IMPRIME_PLAYER
+
+            call lee_teclado
+			;Una vez leído el teclado, se evalúa la tecla presionada
+			cmp bp,32; Tecla derecha
+			jz derecha
+			cmp bp,30; Tecla izquierda
+			jz izquierda
+			cmp bp,17; Tecla arriba
+			jz arriba
+			cmp bp,31; Tecla abajo
+			jz abajo
+			cmp bp,25; La tecla "p" pausa el juego. Se deja de leer teclado y se lee mouse
+			jz PAUSA
+
 			inc head_y
-			call IMPRIME_HEAD
-			jmp PLAY
+			jmp abajo
 
 		;Si no se encontró el driver del mouse, muestra un mensaje y el usuario debe salir tecleando [enter]
 		fin:
@@ -574,6 +618,40 @@ endm
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;;;;;PROCEDIMIENTOS;;;;;;;;
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+	lee_teclado proc 
+		push ax
+	    push bx
+	    push es
+
+	    mov ax, 40h                
+	    mov es, ax                  ;access keyboard data area via segment 40h
+	    mov WORD PTR es:[1ah], 1eh  ;set the kbd buff head to start of buff
+	    mov WORD PTR es:[1ch], 1eh  ;set the kbd buff tail to same as buff head
+	                                ;the keyboard typehead buffer is now cleared
+	    xor ah, ah
+	    in al, 60h                  ;al -> scancode
+	    test al, 80h                ;Is a break code in al?
+	    jz ACCEPT_KEY               ;If not, accept it. 
+	                                ;If so, check to see if it's the break code
+	                                ;that corresponds with the make code in bp.
+	    mov bx, bp                  ;bx -> make code   
+	    or bl, 80h                  ;change make code into it's break code  
+	    cmp bl, al                  ;Do the new and old break codes match?
+	    je ACCEPT_KEY               ;If so, accept the break code.
+	    pop es                      ;If not, bp retains old make code.
+	    pop bx
+	    pop ax
+	    ret
+
+	ACCEPT_KEY: 
+	    mov bp, ax                  ;bp -> scancode, accessible globally
+
+	    pop es
+	    pop bx
+	    pop ax
+	    ret
+	endp
 
 
 	DIBUJA_UI proc
