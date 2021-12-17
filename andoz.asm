@@ -83,6 +83,8 @@ speed 			db 		1
 ;Valor inicial: 00 00 0010111 01100b
 head_x 			db 		?
 head_y			db		?
+head_x_temp		db 		?
+head_y_temp		db 		?
 ;Bits 0-4: Posición del renglón (0-24d)
 ;Bits 5-11: Posición de la columna (0-79d)
 ;Bits 12-13: Dirección del siguiente movimiento
@@ -122,6 +124,7 @@ arribita		db 	'ARRIBA    $'
 abajito			db 	'ABAJO     $'
 izq				db 	'IZQUIERDA $'
 der				db 	'DERECHA   $'
+nada			db 	'          $'
 
 
 
@@ -472,17 +475,17 @@ endm
 
 		STOP:
 			;Se cumplieron todas las condiciones de stop
-			posiciona_cursor 11,120
-			imprime_cadena_color termina,10,cGrisClaro,bgNegro
-			jmp mouse_no_clic
+			;posiciona_cursor 11,120
+			;imprime_cadena_color termina,10,cGrisClaro,bgNegro
+			jmp inicio
 
 		PLAY:
 			;Se cumplieron todas las condiciones de play
-			inc head_x
-			temporizador
-			call IMPRIME_PLAYER
-            call lee_teclado
 
+			posiciona_cursor 11,120
+			imprime_cadena_color nada,10,cGrisClaro,bgNegro
+
+            call lee_teclado
             ;Una vez leído el teclado, se evalúa la tecla presionada
 			cmp bp,32; Tecla derecha
 			jz derecha
@@ -498,13 +501,20 @@ endm
 			jmp PLAY
 
 		derecha:
-			posiciona_cursor 11,120
-			imprime_cadena_color der,10,cGrisClaro,bgNegro
+			;posiciona_cursor 11,120
+			;imprime_cadena_color der,10,cGrisClaro,bgNegro
+
+			;Se guarda la posición original antes de cambiar
+			mov ah,head_x
+			mov [head_x_temp],ah
+			mov ah,head_y
+			mov [head_y_temp],ah
+			inc head_x; DERECHA
 
 			temporizador
 			call IMPRIME_PLAYER
-
             call lee_teclado
+
 			;Una vez leído el teclado, se evalúa la tecla presionada
 			cmp bp,32; Tecla derecha
 			jz derecha
@@ -517,17 +527,23 @@ endm
 			cmp bp,25; La tecla "p" pausa el juego. Se deja de leer teclado y se lee mouse
 			jz PAUSA
 
-			inc head_x
 			jmp derecha
 
 		izquierda:
-			posiciona_cursor 11,120
-			imprime_cadena_color izq,10,cGrisClaro,bgNegro
+			;posiciona_cursor 11,120
+			;imprime_cadena_color izq,10,cGrisClaro,bgNegro
+
+			;Se guarda la posición original antes de cambiar
+			mov ah,head_x
+			mov [head_x_temp],ah
+			mov ah,head_y
+			mov [head_y_temp],ah
+			dec head_x; IZQUIERDA
 
 			temporizador
 			call IMPRIME_PLAYER
-
             call lee_teclado
+
 			;Una vez leído el teclado, se evalúa la tecla presionada
 			cmp bp,32; Tecla derecha
 			jz derecha
@@ -540,17 +556,23 @@ endm
 			cmp bp,25; La tecla "p" pausa el juego. Se deja de leer teclado y se lee mouse
 			jz PAUSA
 
-			dec head_x
 			jmp izquierda
 
 		arriba:
-			posiciona_cursor 11,120
-			imprime_cadena_color arribita,10,cGrisClaro,bgNegro
+			;posiciona_cursor 11,120
+			;imprime_cadena_color arribita,10,cGrisClaro,bgNegro
+
+			;Se guarda la posición original antes de cambiar
+			mov ah,head_x
+			mov [head_x_temp],ah
+			mov ah,head_y
+			mov [head_y_temp],ah
+			dec head_y; SUBE
 
 			temporizador
 			call IMPRIME_PLAYER
-
             call lee_teclado
+
 			;Una vez leído el teclado, se evalúa la tecla presionada
 			cmp bp,32; Tecla derecha
 			jz derecha
@@ -563,17 +585,23 @@ endm
 			cmp bp,25; La tecla "p" pausa el juego. Se deja de leer teclado y se lee mouse
 			jz PAUSA
 
-			dec head_y
 			jmp arriba
 
 		abajo:
-			posiciona_cursor 11,120
-			imprime_cadena_color abajito,10,cGrisClaro,bgNegro
+			;posiciona_cursor 11,120
+			;imprime_cadena_color abajito,10,cGrisClaro,bgNegro
+
+			;Se guarda la posición original antes de cambiar
+			mov ah,head_x
+			mov [head_x_temp],ah
+			mov ah,head_y
+			mov [head_y_temp],ah
+			inc head_y; BAJA
 
 			temporizador
 			call IMPRIME_PLAYER
-
             call lee_teclado
+
 			;Una vez leído el teclado, se evalúa la tecla presionada
 			cmp bp,32; Tecla derecha
 			jz derecha
@@ -586,7 +614,6 @@ endm
 			cmp bp,25; La tecla "p" pausa el juego. Se deja de leer teclado y se lee mouse
 			jz PAUSA
 
-			inc head_y
 			jmp abajo
 
 		;Si no se encontró el driver del mouse, muestra un mensaje y el usuario debe salir tecleando [enter]
@@ -776,6 +803,8 @@ endm
 		mov [speed],1
 		mov head_x,23 
 		mov head_y,12
+		mov head_x_temp,23; Los temporales también se inicializan ahí
+		mov head_y_temp,12
 		mov tail_conta, 2  	;contador para la longitud de la cola
 
 		call IMPRIME_SCORE
@@ -927,6 +956,7 @@ endm
 	IMPRIME_PLAYER proc
 		call IMPRIME_HEAD 
 		call IMPRIME_TAIL
+		call BORRA_PLAYER; Se borra la posición anterior de PLAYER
 		ret
 	endp
 
@@ -943,6 +973,24 @@ endm
 	;Se imprimen todos los elementos iniciando en el primero, hasta que se encuentre un 0 
 	IMPRIME_TAIL proc
 		lea bx,[tail]
+		xor bx,bx
+	endp
+
+	;Borra la serpiente para reimprimirla en una posición actualizada
+	BORRA_PLAYER proc
+		call BORRA_HEAD
+		call BORRA_TAIL
+		ret
+	endp
+
+	BORRA_HEAD proc
+		posiciona_cursor [head_y_temp],[head_x_temp]
+		imprime_caracter_color 2,cNegro,bgNegro
+		ret
+	endp
+
+	BORRA_TAIL proc
+		lea bx,[tail]
 		loop_tail:
 			push bx
 			mov ax,[bx]
@@ -958,13 +1006,7 @@ endm
 			add bx,2
 			cmp word ptr [bx],0
 			jne loop_tail
-			ret 
-	endp
-
-	;Borra la serpiente para reimprimirla en una posición actualizada
-	BORRA_PLAYER proc
-		;;;;;Completar =);;;;
-		ret
+			ret
 	endp
 
 	;Imprime objeto en pantalla
