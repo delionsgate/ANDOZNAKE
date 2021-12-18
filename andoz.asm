@@ -81,6 +81,9 @@ sesenta			db 		60 		;dato de valor decimal 60 para operación DIV entre 60
 novNueve		db 		99      ;dato de valor decimal 90 para controlar velocidad
 status 			db 		0 		;0 stop-pause, 1 activo
 colision 		db 		0 		;indicador de colisión
+direccion		db 		?		;Indicador de la dirección de la serpiente; 
+contempo		db 		?		;Contador de ciclos en temporizador
+contempo_aux 	db 		?					
 
 ;Variables para el juego
 score 			dw 		?
@@ -107,8 +110,11 @@ head_y_temp		db 		?
 ;los primeros dos valores son fijos y se imprimen al inicio del juego
 ;el resto se deben calcular conforme avanza el juego
 ;El primer elemento del arreglo 'tail' es el extremo de la cola, el siguiente es el más cercano a la cola, y así sucesivamente.
-tail 			dw 		0000001010101100b,0000001011001100b,1355 dup(0)
+tail 			dw 		0001010100001100b,0001011000001100b,1355 dup(0)
+tail_x_temp		db 		?
+tail_y_temp		db 		?
 tail_conta 		dw 		?  	;contador para la longitud de la cola
+tail_conta_aux	dw		?	;contador auxiliar
 
 ;variables para las coordenadas del objeto actual en pantalla
 item_col 		db 		25  	;columna [21 - 78d]
@@ -267,8 +273,20 @@ endm
 ;;CX - columna en la que se encuentra el mouse en resolucion 640x200 (columnas x renglones)
 ;;DX - renglon en el que se encuentra el mouse en resolucion 640x200 (columnas x renglones)
 lee_mouse	macro
-	mov ax,0003h
+	local continuar
+	mov ax, 0003h
 	int 33h
+
+	cmp cx, 160d
+	jle continuar
+
+	mov cx, 0d
+	mov dx, 160d
+
+	mov ax, 0007h
+	int 33h
+
+	continuar:
 endm
 
 ;comprueba_mouse - Revisa si el driver del mouse existe
@@ -278,25 +296,32 @@ comprueba_mouse 	macro
 					;Si AX = 0000h, no existe el driver. Si AX = FFFFh, existe driver
 endm
 
-temporizador macro ; Se espera un tiempo para seguir el proceso
+temporizador macro; Se espera un tiempo para seguir el proceso
+    local iniciaTemp
     local espera
     local cambio
+    	;contempo se modifica en donde sea necesario
+    	xor cl,cl
+    	mov cl,[contempo]
+    	mov contempo_aux,cl
+	    espera:
+	    	;Se limpia el buffer
+	    	mov ah,0Ch
+	    	xor al,al
+	    	int 21h
 
-    espera:
-    	;Se limpia el buffer
-    	mov ah,0Ch
-    	xor al,al
-    	int 21h
+	        mov ah,2ch
+	        int 21h
+	        mov [conta],dl            ;Obtiene el primer tick
 
-        mov ah,2ch
-        int 21h
-        mov [conta],dl            ;Obtiene el primer tick
-
-        cambio:
-            mov ah,2ch
-            int 21h
-            cmp dl,[conta]        	;Si el cronómetro cambia
-            jz cambio               ;Si no, regresa hasta que cambie.
+	        cambio:
+	            mov ah,2ch
+	            int 21h
+	            cmp dl,[conta]        	;Si el cronómetro cambia
+	            jz cambio               ;Si no, regresa hasta que cambie.
+	    dec contempo_aux
+	    cmp contempo_aux,0
+	    jg espera
 endm
 
 ;Devuelve un número pseudoaleatorio entre 0 y 99 en elk registro DX
@@ -318,86 +343,129 @@ numero_aleatorio macro lim_inf, lim_sup
 endm
 
 
-detectar_colision macro fila, columna	
+detectar_colision macro fila, columna
+	local verif_colision_head
+	local verif_colum_head
+	local verif_colision_item
+	local verif_colum_item
+	local verif_colision_coda
 	local loop_coda
-	local verif_colum
-	local condicion
-	local colision_marco
-	local colision_columna
-	local colision_bInf
+	local verif_colum_coda
+	local condicion_loop
+	local sin_colision
 	local colision_bSup
+	local colision_bInf
 	local colision_pIzq
 	local colision_pDer
+	local colision_Coda
+	local colision_Head
+	local colision_Item
 	local fin_colision
 
-	mov colision, 0h
+
 	; 0 : sin colisión
 	; 1 : colisión con el marco
 	; 2 : colisión con cola de viborita
+	; 3 : colisión con cabeza de viborita
+	; 4 : colisión con item
 
-	;Colisión con viborita
-	xor bx, bx
-	lea bx, [tail]		;posición de la cadena en el registro ds
-						;posición del segmento de cola con el cual se puede chocar
+	xor dx, dx
+	mov dh,head_x
+	mov dl,head_y
 
-	loop_coda:
-		push bx 			;se guarda en la pila dado que algunos porcedimientos modifican bx
-		mov ax, [bx]
-		
-		cmp fila, al 
-		je verif_colum
-		jmp condicion
-
-		verif_colum:
-			cmp columna, ah 
-			mov colision, 2h
-			je fin_colision
-
-		condicion:
-			pop bx 					;se recupera el valor de bx
-			add bx, 2 				;se avanza al siguiente elemento
-			cmp word ptr [bx], 0 	;se compara hasta encontrar un valor igual a 0 (no inicializado de la viborita)
-			jne loop_coda
-
-	;colisión con el marco del juego
-	colision_marco:
-		;Colisión con fila : fuera de [1 - 23d]
-		cmp fila, 1d
-		jl colision_bSup
-
-		cmp fila, 23d
-		jg colision_bInf
-
-		colision_columna:
-			;Colisión con columna : fuera de [21 - 78d]
-			cmp columna, 21d
-			jl colision_pIzq
-
-			cmp columna, 78d
-			jg colision_pDer
-	jmp fin_colision
+	;Se verifica si se le pasaron las coordenadas de la Cabeza o de un Item
+	lea ax, [fila]				;desplazamiento en memoria de la fila que les pasas a la macro
+	lea bx, [item_ren]			;desplazamiento en memoria de la fila del último Item posicionado
+	cmp ax, bx   				;se comparan las "direciones de memoria"
+	jne verif_colision_item 	;si son diferentes, se trata de la Cabeza y, por lo tanto, no es necesario evaluar colisión con ella
+								;si no, se trata del Item y hay que evaluar colisión con la Cabeza
 	
+	;Colisión con cabeza
+	verif_colision_head:
+		;lea dx, [head]
+		cmp fila, dl 
+		je verif_colum_head
+		jmp verif_colision_coda
+
+		verif_colum_head:
+			cmp columna, dh 
+			je colision_Head
+		jmp verif_colision_coda
+
+	;colisión/comerser un item
+	verif_colision_item:
+		cmp dl, [item_ren]
+		je verif_colum_item
+		jmp verif_colision_coda
+
+		verif_colum_item:
+			cmp dh, [item_col]
+			je colision_Item
+
+	;Colisión con cuerpo viborita
+	verif_colision_coda:
+		xor bx, bx
+		lea bx, [tail]		;posición de la cadena en el registro ds
+							;posición del segmento de cola con el cual se puede chocar
+		loop_coda:
+			push bx 			;se guarda en la pila dado que algunos porcedimientos modifican bx
+			mov ax, [bx]
+		
+			cmp fila, al 
+			je verif_colum_coda
+			jmp condicion_loop
+
+			verif_colum_coda:
+				cmp columna, ah 
+				je colision_Coda
+
+			condicion_loop:
+				pop bx 					;se recupera el valor de bx
+				add bx, 2 				;se avanza al siguiente elemento
+				cmp word ptr [bx], 0 	;se compara hasta encontrar un valor igual a 0 (no inicializado de la viborita)
+				jne loop_coda
+
+	;Colisión con el marco del juego
+	;Colisión con fila : fuera de [1 - 23d]
+	cmp fila, 1d
+	jl colision_bSup
+
+	cmp fila, 23d
+	jg colision_bInf
+
+	;Colisión con columna : fuera de [21 - 78d]
+	cmp columna, 21d
+	jl colision_pIzq
+
+	cmp columna, 78d
+	jg colision_pDer
+	jmp sin_colision
+
+	sin_colision:
+		mov colision, 0h
+		jmp fin_colision
 	colision_bSup:
-		;inc [item_ren]
-		;mov [item_ren], 16
 		mov colision, 1h
-		jmp colision_columna
+		jmp fin_colision
+		;jmp colision_columna
 	colision_bInf:
-		;shr [item_ren], 2
-		;dec [item_ren]
-		;mov [item_ren], 16
 		mov colision, 1h
-		jmp colision_columna
+		jmp fin_colision
+		;jmp colision_columna
 	colision_pIzq:
-		;rol [item_col], 1
-		;add [item_col], 21d
-		;mov [item_col], 25d
 		mov colision, 1h
 		jmp fin_colision
 	colision_pDer:
-		;shr [item_col], 1
-		;mov [item_col], 25
 		mov colision, 1h
+		jmp fin_colision
+	colision_Coda:
+		mov colision, 2h
+		jmp fin_colision
+	colision_Head:
+		mov colision, 3h 
+		jmp fin_colision
+	colision_Item:
+		mov colision, 4h 
 		jmp fin_colision
 
 	fin_colision:
@@ -442,7 +510,7 @@ endm
 			lee_mouse
 			test bx,0001h
 			jnz mouse_no_clic
-		;Lee el mouse y avanza hasta que se haga clic en el boton izquierdo
+			;Lee el mouse y avanza hasta que se haga clic en el boton izquierdo
 
 		mouse:
 			lee_mouse
@@ -541,12 +609,14 @@ endm
 			cmp [speed],1
 			jz mouse_no_clic
 			dec [speed]
+			inc [contempo]
 			call IMPRIME_SPEED
 			jmp mouse_no_clic
 
 		velArriba:
 			;Se cumplieron todas las condiciones de derecha
 			inc [speed]
+			dec [contempo]
 			call IMPRIME_SPEED
 			jmp mouse_no_clic
 
@@ -555,7 +625,7 @@ endm
 		flujo:
 			jmp flujo1
 
-		flujo1:
+		flujo1: ;COLUMNAS DE PLAY EN ADELANTE
 			cmp cx,3
 			jge flujo2
 			cmp cx,9
@@ -564,13 +634,13 @@ endm
 			jge flujo2
 			jmp mouse_no_clic
 
-		flujo2:
+		flujo2:	
 			cmp cx,6
 			jz	mouse_no_clic
 			cmp cx,7
 			jz	mouse_no_clic
 			cmp cx,8
-			jz	mouse_no_clic
+			jz	mouse_no_clic; SI ES EL ESPACIO DE EN MEDIO NO HACE NADA
 			cmp cx,12
 			jz	mouse_no_clic
 			cmp cx,13
@@ -587,7 +657,7 @@ endm
 			jmp mouse_no_clic
 
 
-		PAUSA:
+		PAUSA: 
 			;Se cumplieron todas las condiciones de pausa
 			;Si speed es 0
 			posiciona_cursor 11,120
@@ -602,9 +672,20 @@ endm
 
 		PLAY:
 			;Se cumplieron todas las condiciones de play
-
 			posiciona_cursor 11,120
 			imprime_cadena_color nada,10,cGrisClaro,bgNegro
+
+		PLAY2:
+			call IMPRIME_PLAYER
+			detectar_colision [head_y],[head_x]
+			cmp colision,1 ; colisión con el marco
+			jz FAIL
+			cmp colision,2 ;colisión con cola de viborita
+			jz FAIL
+
+			detectar_colision [head_y],[head_x]
+			cmp colision,4; Colisión con la fruta
+			jz sigue		;Si se colisiona con fruta, se imprime un nuevo item
 
             call lee_teclado
             ;Una vez leído el teclado, se evalúa la tecla presionada
@@ -619,224 +700,46 @@ endm
 			cmp bp,25; La tecla "p" pausa el juego. Se deja de leer teclado y se lee mouse
 			jz PAUSA
 
-			jmp PLAY
+			jmp PLAY2
 
-		derecha:
-			;posiciona_cursor 11,120
-			;imprime_cadena_color der,10,cGrisClaro,bgNegro
+			derecha:
+				;posiciona_cursor 11,120
+				;imprime_cadena_color der,10,cGrisClaro,bgNegro
+				mov [direccion],1
+				jmp PLAY
 
-			;Se guarda la posición original antes de cambiar
-			mov ah,head_x
-			mov [head_x_temp],ah
-			mov ah,head_y
-			mov [head_y_temp],ah
-			inc head_x; DERECHA 
+			izquierda:
+				;posiciona_cursor 11,120
+				;imprime_cadena_color izq,10,cGrisClaro,bgNegro
+				mov [direccion],2
+				jmp PLAY2
 
-			temporizador
-			call IMPRIME_PLAYER
+			arriba:
+				;posiciona_cursor 11,120
+				;imprime_cadena_color arribita,10,cGrisClaro,bgNegro
+				mov [direccion],3
+				jmp PLAY2
 
-			detectar_colision [head_y],[head_x]
-			cmp colision,1 ; colisión con el marco
-			jz FAIL
-			cmp colision,2 ;colisión con cola de viborita
-			jz FAIL
+			abajo:
+				;posiciona_cursor 11,120
+				;imprime_cadena_color abajito,10,cGrisClaro,bgNegro
+				mov [direccion],4
+				jmp PLAY2
 
-			detectar_colision [item_ren],[item_col]
-			cmp colision,1; Colisión con la fruta
-			jz sigueDerecha; Si se colisiona con fruta, se imprime un nuevo item
-			cmp colision,2; Colisión con la fruta
-			jz sigueDerecha; Si se colisiona con fruta, se imprime un nuevo item
-
-			leeDerecha:
-	            call lee_teclado
-				;Una vez leído el teclado, se evalúa la tecla presionada
-				cmp bp,32; Tecla derecha
-				jz derecha
-				cmp bp,30; Tecla izquierda
-				jz izquierda
-				cmp bp,17; Tecla arriba
-				jz arriba
-				cmp bp,31; Tecla abajo
-				jz abajo
-				cmp bp,25; La tecla "p" pausa el juego. Se deja de leer teclado y se lee mouse
-				jz PAUSA
-
-				jmp derecha
-
-			sigueDerecha:
+			sigue:
 				call IMPRIME_ITEM
-				jmp leeDerecha
+				inc tail_conta
+				inc score
+				call IMPRIME_SCORE
+				jmp PLAY2
 
+			FAIL:
+				posiciona_cursor 11,120
+				imprime_cadena_color perdiste,8,cBlanco,bgRojoClaro
 
-		izquierda:
-			;posiciona_cursor 11,120
-			;imprime_cadena_color izq,10,cGrisClaro,bgNegro
-
-			;Se guarda la posición original antes de cambiar
-			mov ah,head_x
-			mov [head_x_temp],ah
-			mov ah,head_y
-			mov [head_y_temp],ah
-			dec head_x; IZQUIERDA
-
-			temporizador
-			call IMPRIME_PLAYER
-
-			detectar_colision [head_y],[head_x]
-			cmp colision,1 ; colisión con el marco
-			jz FAIL
-			cmp colision,2 ;colisión con cola de viborita
-			jz FAIL
-
-			detectar_colision [item_ren],[item_col]
-			cmp colision,1; Colisión con la fruta
-			jz sigueIzquierda; Si se colisiona con fruta, se imprime un nuevo item
-			cmp colision,2; Colisión con la fruta
-			jz sigueIzquierda; Si se colisiona con fruta, se imprime un nuevo item
-
-			leeIzquierda:
-	            call lee_teclado
-				;Una vez leído el teclado, se evalúa la tecla presionada
-				cmp bp,32; Tecla derecha
-				jz derecha
-				cmp bp,30; Tecla izquierda
-				jz izquierda
-				cmp bp,17; Tecla arriba
-				jz arriba
-				cmp bp,31; Tecla abajo
-				jz abajo
-				cmp bp,25; La tecla "p" pausa el juego. Se deja de leer teclado y se lee mouse
-				jz PAUSA
-
-				jmp izquierda
-
-			sigueIzquierda:
-				call IMPRIME_ITEM
-				jmp leeIzquierda
-
-		arriba:
-			;posiciona_cursor 11,120
-			;imprime_cadena_color arribita,10,cGrisClaro,bgNegro
-
-			;Se guarda la posición original antes de cambiar
-			mov ah,head_x
-			mov [head_x_temp],ah
-			mov ah,head_y
-			mov [head_y_temp],ah
-			dec head_y; SUBE
-
-			temporizador
-			call IMPRIME_PLAYER
-
-			detectar_colision [head_y],[head_x]
-			cmp colision,1 ; colisión con el marco
-			jz FAIL
-			cmp colision,2 ;colisión con cola de viborita
-			jz FAIL
-
-			detectar_colision [item_ren],[item_col]
-			cmp colision,1; Colisión con la fruta
-			jz sigueArriba; Si se colisiona con fruta, se imprime un nuevo item
-			cmp colision,2; Colisión con la fruta
-			jz sigueArriba; Si se colisiona con fruta, se imprime un nuevo item
-
-			leeArriba:
-	            call lee_teclado
-				;Una vez leído el teclado, se evalúa la tecla presionada
-				cmp bp,32; Tecla derecha
-				jz derecha
-				cmp bp,30; Tecla izquierda
-				jz izquierda
-				cmp bp,17; Tecla arriba
-				jz arriba
-				cmp bp,31; Tecla abajo
-				jz abajo
-				cmp bp,25; La tecla "p" pausa el juego. Se deja de leer teclado y se lee mouse
-				jz PAUSA
-
-				jmp arriba
-
-			sigueArriba:
-				call IMPRIME_ITEM
-				jmp leeArriba
-
-		abajo:
-			;posiciona_cursor 11,120
-			;imprime_cadena_color abajito,10,cGrisClaro,bgNegro
-
-			;Se guarda la posición original antes de cambiar
-			mov ah,head_x
-			mov [head_x_temp],ah
-			mov ah,head_y
-			mov [head_y_temp],ah
-			inc head_y; BAJA
-
-			temporizador
-			call IMPRIME_PLAYER
-
-			detectar_colision [head_y],[head_x]
-			cmp colision,1 ; colisión con el marco
-			jz FAIL
-			cmp colision,2 ;colisión con cola de viborita
-			jz FAIL
-
-			detectar_colision [item_ren],[item_col]
-			cmp colision,1; Colisión con la fruta
-			jz sigueAbajo; Si se colisiona con fruta, se imprime un nuevo item
-			cmp colision,2; Colisión con la fruta
-			jz sigueAbajo
-
-			leeAbajo:
-	            call lee_teclado
-				;Una vez leído el teclado, se evalúa la tecla presionada
-				cmp bp,32; Tecla derecha
-				jz derecha
-				cmp bp,30; Tecla izquierda
-				jz izquierda
-				cmp bp,17; Tecla arriba
-				jz arriba
-				cmp bp,31; Tecla abajo
-				jz abajo
-				cmp bp,25; La tecla "p" pausa el juego. Se deja de leer teclado y se lee mouse
-				jz PAUSA
-
-				jmp abajo
-
-			sigueAbajo:
-				call IMPRIME_ITEM
-				jmp leeAbajo
-
-		FAIL:
-			posiciona_cursor 11,120
-			imprime_cadena_color perdiste,8,cBlanco,bgRojoClaro
-
-			temporizador
-			temporizador
-			temporizador
-			temporizador
-			temporizador
-			temporizador
-			temporizador
-			temporizador
-			temporizador
-			temporizador
-			temporizador
-			temporizador
-			temporizador
-			temporizador
-			temporizador
-			temporizador
-			temporizador
-			temporizador
-			temporizador
-			temporizador
-			temporizador
-			temporizador
-			temporizador
-			temporizador
-			temporizador
-
-			jmp STOP
+				mov contempo,30
+				temporizador
+				jmp STOP
 
 		;Si no se encontró el driver del mouse, muestra un mensaje y el usuario debe salir tecleando [enter]
 		fin:
@@ -849,15 +752,6 @@ endm
 			clear 			;limpia pantalla
 			mov ax,4C00h	;AH = 4Ch, opción para terminar programa, AL = 0 Exit Code, código devuelto al finalizar el programa
 			int 21h			;señal 21h de interrupción, pasa el control al sistema operativo
-
-
-
-
-
-
-
-
-
 
 
 
@@ -1023,11 +917,13 @@ endm
 		mov [score],0
 		mov [hi_score],0
 		mov [speed],1
-		mov head_x,23 
-		mov head_y,12
-		mov head_x_temp,1;Inicialmente, el borrado de la cabeza está en un lugar diferente
-		mov head_y_temp,1
-		mov tail_conta, 2  	;contador para la longitud de la cola
+		mov [head_x],23 
+		mov [head_y],12
+		mov [head_x_temp],1;Inicialmente, el borrado de la cabeza está en un lugar diferente
+		mov [head_y_temp],1
+		mov [tail_conta], 2  	;contador para la longitud de la cola
+		mov [direccion],0 	; No se dirige a ningún lado
+		mov [contempo],10 	;contempo en un inicio es 10 (la velocidad más baja)
 
 		call IMPRIME_SCORE
 		call IMPRIME_HISCORE
@@ -1099,7 +995,7 @@ endm
 	;Establece las coordenadas en variables auxiliares en donde comienza a imprimir.
 	;Pone el valor en BX que se imprime con el procedimiento IMPRIME_SCORE_BX
 	IMPRIME_SCORE proc
-		mov [ren_aux],2
+		mov [ren_aux],6
 		mov [col_aux],12
 		mov bx,[score]
 		call IMPRIME_SCORE_BX
@@ -1110,7 +1006,7 @@ endm
 	;Establece las coordenadas en variables auxiliares en donde comienza a imprimir.
 	;Pone el valor en BX que se imprime con el procedimiento IMPRIME_SCORE_BX
 	IMPRIME_HISCORE proc
-		mov [ren_aux],6
+		mov [ren_aux],2
 		mov [col_aux],12
 		mov bx,[hi_score]
 		call IMPRIME_SCORE_BX
@@ -1152,9 +1048,10 @@ endm
 		mov [ren_aux],12
 		mov [col_aux],9
 		;Si speed es mayor o igual a 100, se limita a 99
-		cmp [speed],100d
+		cmp [speed],11d
 		jb continua
-		mov [speed],99d
+		mov [speed],10d
+		mov [contempo],1d
 		continua:
 			;posiciona el cursor en la posición a imprimir
 			posiciona_cursor [ren_aux],[col_aux]
@@ -1178,14 +1075,66 @@ endm
 	IMPRIME_PLAYER proc
 		call IMPRIME_HEAD 
 		call IMPRIME_TAIL
-		call BORRA_PLAYER; Se borra la posición anterior de PLAYER
+		;call BORRA_PLAYER; Se borra la posición anterior de PLAYER
 		ret
 	endp
 
 	;Imprime la cabeza de la serpiente
 	IMPRIME_HEAD proc
-		posiciona_cursor [head_y],[head_x]
-		imprime_caracter_color 2,cVerdeClaro,bgNegro
+		cmp [direccion],0; No se dirige
+		jz imprime
+		cmp [direccion],1; DERECHA
+		jz dirDerecha
+		cmp [direccion],2; IZQUIERDA
+		jz dirIzquierda
+		cmp [direccion],3; ARRIBA
+		jz dirArriba
+		cmp [direccion],4; ABAJO
+		jz dirAbajo
+
+		dirDerecha:
+			;Se guarda la posición original antes de cambiar
+			mov ah,head_x
+			mov [head_x_temp],ah
+			mov ah,head_y
+			mov [head_y_temp],ah
+			inc head_x; DERECHA
+			jmp imprime 
+
+		dirIzquierda:
+			;Se guarda la posición original antes de cambiar
+			mov ah,head_x
+			mov [head_x_temp],ah
+			mov ah,head_y
+			mov [head_y_temp],ah
+			dec head_x; IZQUIERDA
+			jmp imprime
+
+		dirArriba:
+			;Se guarda la posición original antes de cambiar
+			mov ah,head_x
+			mov [head_x_temp],ah
+			mov ah,head_y
+			mov [head_y_temp],ah
+			dec head_y; SUBE
+			jmp imprime
+
+		dirAbajo:
+			;Se guarda la posición original antes de cambiar
+			mov ah,head_x
+			mov [head_x_temp],ah
+			mov ah,head_y
+			mov [head_y_temp],ah
+			inc head_y; BAJA
+			jmp imprime
+
+		imprime:
+			posiciona_cursor [head_y],[head_x]
+			imprime_caracter_color 2,cVerdeClaro,bgNegro
+			posiciona_cursor [head_y_temp],[head_x_temp]
+			imprime_caracter_color 254,cVerdeClaro,bgNegro
+			temporizador
+
 		ret
 	endp
 
@@ -1194,45 +1143,76 @@ endm
 	;Los valores establecidos en 0 son espacios reservados para el resto de los elementos.
 	;Se imprimen todos los elementos iniciando en el primero, hasta que se encuentre un 0 
 	IMPRIME_TAIL proc
-		lea bx,[tail]
-		xor bx,bx
+		cmp [direccion],0; Si no se mueve la serpiente
+		jz imprimeCola
+
+		xor cx,cx
+		mov cx,[tail_conta]
+		mov [tail_conta_aux],cx
+		xor si,si
+		mov si,[tail_conta]; SI = ultimo elemento de la cola (de izquierda a derecha)
+		;Se revisan los elementos de la cola derecha a izquierda
+		;tail bits,bits,bits,bits,bits,1555dup(0)
+		mueveSerpiente:
+			;SE GUARDA LA POSICIÓN DE LA COLA
+			xor cx,cx
+			mov cx,tail[si]; Posición anterior a la cabeza (última posición de la cadena)
+			;CH -> coordenada x
+			;CL -> coordenada y
+			mov [tail_x_temp],ch
+			mov [tail_y_temp],cl
+
+			xor cx,cx
+			mov ch,[head_x_temp]
+			mov cl,[head_y_temp]
+			;CX ahora tiene la direccion de la cabeza
+			mov tail[si],cx; El último elemento de la cadena se sobreescribe con
+							; las direcciones de la cabeza
+
+			;Se pasa la dirección del elemento revisado como "cabeza"
+			mov ch,[tail_x_temp]
+			mov cl,[tail_y_temp]
+			mov [head_x_temp],ch
+			mov [head_y_temp],cl
+			dec si; Se revisa elemento que sigue (de derecha a izquierda) 
+			cmp si,0
+			jge mueveSerpiente
+			call BORRA_PLAYER
+			
+		imprimeCola:
+			lea bx, [tail]		;posición de la cadena en el registro ds
+			loop_tail:
+				push bx 			;se guarda en la pila dado que algunos porcedimientos modifican bx
+				mov ax,[bx]
+				mov [ren_aux], al
+				mov [col_aux], ah
+
+				posiciona_cursor [ren_aux],[col_aux]
+				imprime_caracter_color 254,cVerdeClaro,bgNegro
+
+				pop bx 					;se recupera el valor de bx
+				add bx, 2 				;se avanza al siguiente elemento
+				cmp word ptr [bx], 0 	;se compara hasta encontrar un valor igual a 0 (no inicializado de la viborita)
+				jne loop_tail
+	ret
 	endp
 
 	;Borra la serpiente para reimprimirla en una posición actualizada
 	BORRA_PLAYER proc
-		call BORRA_HEAD
-		call BORRA_TAIL
-		ret
-	endp
+		mov si,0001h
+		mov cx,tail[si]
+		mov [ren_aux], cl
+		mov [col_aux], ch
+		posiciona_cursor [ren_aux],[col_aux]
+		imprime_caracter_color 254,cNegro,bgNegro
 
-	BORRA_HEAD proc
-		posiciona_cursor [head_y_temp],[head_x_temp]
-		imprime_caracter_color 2,cNegro,bgNegro
+		pop bx 					;se recupera el valor de bx
 		ret
-	endp
-
-	BORRA_TAIL proc
-		lea bx,[tail]
-		loop_tail:
-			push bx
-			mov ax,[bx]
-			mov dx,ax
-			and ax,11111b
-			mov [ren_aux],al
-			and dx,111111100000b
-			shr dx,5
-			mov [col_aux],dl
-			posiciona_cursor [ren_aux],[col_aux]
-			imprime_caracter_color 254,cVerdeClaro,bgNegro
-			pop bx
-			add bx,2
-			cmp word ptr [bx],0
-			jne loop_tail
-			ret
 	endp
 
 	;Imprime objeto en pantalla
 	IMPRIME_ITEM proc
+		push bx
 		intento:
 			;columna [21d - 78d]
 			numero_aleatorio left, right
@@ -1248,6 +1228,7 @@ endm
 
 		posiciona_cursor [item_ren], [item_col]
 		imprime_caracter_color 3, cRojoClaro, bgNegro
+		pop bx
 		ret
 	endp
 
