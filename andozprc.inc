@@ -154,17 +154,19 @@
 	;Reinicia scores y speed, e imprime
 	DATOS_INICIALES proc
 		mov [score],0
-		mov [hi_score],0
-		mov [speed],1
+		mov [speed],8
 		mov [head_x],23 
 		mov [head_y],12
-		; mov [f_cabeza], 23
-		; mov [c_cabeza], 12
 		mov [head_x_temp],22;Inicialmente, el borrado de la cabeza está en un lugar diferente
 		mov [head_y_temp],12
 		mov [tail_conta], 2  	;contador para la longitud de la cola
 		mov [direccion],0 	; No se dirige a ningún lado
 		mov [contempo],10 	;contempo en un inicio es 10 (la velocidad más baja)
+
+		xor si,si
+		mov tail[si],0001010100001100b	;Primer elemento de la cola
+		add si,2
+		mov tail[si],0001011000001100b  ;Segundo elemento de la cola
 
 		call IMPRIME_SCORE
 		call IMPRIME_HISCORE
@@ -316,7 +318,6 @@
 	IMPRIME_PLAYER proc
 		call IMPRIME_HEAD 
 		call IMPRIME_TAIL
-		;call BORRA_PLAYER; Se borra la posición anterior de PLAYER
 		ret
 	endp
 
@@ -372,6 +373,8 @@
 		imprime:
 			posiciona_cursor [head_y],[head_x]
 			imprime_caracter_color 2,cVerdeClaro,bgNegro
+			posiciona_cursor [head_y_temp],[head_x_temp]
+			imprime_caracter_color 254,cVerdeClaro,bgNegro
 			temporizador
 
 		ret
@@ -437,9 +440,6 @@
 
 	;Borra la serpiente para reimprimirla en una posición actualizada
 	BORRA_PLAYER proc
-		;Borra la cabeza anterior
-		posiciona_cursor [head_y_temp],[head_x_temp]
-		imprime_caracter_color 254,cVerdeClaro,bgNegro
 		borraCola:
 			lea bx, [tail]		;posición de la cadena en el registro ds
 			loop_tail2:
@@ -456,17 +456,6 @@
 				cmp word ptr [bx], 0 	;se compara hasta encontrar un valor igual a 0 (no inicializado de la viborita)
 				jne loop_tail2
 		ret
-	endp
-
-	AUMENTA_PLAYER proc
-		inc tail_conta
-		xor si,si
-		mov si,1
-		xor cx,cx
-		mov cx,tail[si-1]; CH -> X, CL -> Y
-		;mov tail[si-1]
-		
-	ret 
 	endp
 
 	;Imprime objeto en pantalla

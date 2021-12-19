@@ -22,8 +22,8 @@ contempo		db 		?		;Contador de ciclos en temporizador
 contempo_aux 	db 		?					
 
 ;Variables para el juego
-score 			dw 		?
-hi_score	 	dw 		?
+score 			dw 		0000h
+hi_score	 	dw 		0000h
 speed 			db 		?
 
 f_cabeza db 0 	;estas dos variables se deben cambiar 
@@ -272,8 +272,9 @@ nada			db 	'          $'
 
 		STOP:
 			;Se cumplieron todas las condiciones de stop
-			;posiciona_cursor 11,120
-			;imprime_cadena_color termina,10,cGrisClaro,bgNegro
+			xor cx,cx
+			mov cx,score
+			mov [hi_score],cx
 			jmp inicio
 
 		START:
@@ -281,8 +282,9 @@ nada			db 	'          $'
 			posiciona_cursor 11,120
 			imprime_cadena_color nada,10,cGrisClaro,bgNegro
 
-		PLAY:
-			
+		PLAY:	
+			call IMPRIME_PLAYER
+
 			detectar_colision [head_y],[head_x]
 			cmp colision,1 ; colisión con el marco
 			jz FAIL
@@ -305,11 +307,7 @@ nada			db 	'          $'
 			jz abajo
 			cmp bp,25; La tecla "p" pausa el juego. Se deja de leer teclado y se lee mouse
 			jz PAUSA
-			; mov contempo, 10
-			; temporizador
-			; avance_snake
 
-			call IMPRIME_PLAYER
 			jmp PLAY
 
 			derecha:
@@ -346,10 +344,27 @@ nada			db 	'          $'
 			FAIL:
 				posiciona_cursor 11,120
 				imprime_cadena_color perdiste,8,cBlanco,bgRojoClaro
+				call BORRA_PLAYER
+
+				xor si,si
+				add si,4; Omite los dos primeros elementos
+				xor cx,cx
+				mov cx,tail_conta
+				sub cx,2
+				loopReinicio:
+					mov tail[si],0000h
+					cmp tail[si+2],0
+					add si,2
+					loop loopReinicio
 
 				mov contempo,30
 				temporizador
-				jmp STOP
+
+				mov cx,score
+				cmp cx,hi_score; SI el nuevo score es mayor que hi-score
+				jge STOP
+
+				jmp inicio
 
 		;Si no se encontró el driver del mouse, muestra un mensaje y el usuario debe salir tecleando [enter]
 		fin:
