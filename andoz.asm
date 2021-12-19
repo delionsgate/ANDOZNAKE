@@ -259,7 +259,7 @@ nada			db 	'          $'
 			cmp cx,12
 			jbe STOP
 			cmp cx,17
-			jbe PLAY
+			jbe START
 			jmp mouse_no_clic
 
 
@@ -284,7 +284,6 @@ nada			db 	'          $'
 
 		PLAY:	
 			call IMPRIME_PLAYER
-
 			detectar_colision [head_y],[head_x]
 			cmp colision,1 ; colisión con el marco
 			jz FAIL
@@ -314,7 +313,7 @@ nada			db 	'          $'
 				;posiciona_cursor 11,120
 				;imprime_cadena_color der,10,cGrisClaro,bgNegro
 				mov [direccion],1
-				jmp START
+				jmp PLAY
 
 			izquierda:
 				;posiciona_cursor 11,120
@@ -342,10 +341,8 @@ nada			db 	'          $'
 				jmp PLAY
 
 			FAIL:
-				posiciona_cursor 11,120
-				imprime_cadena_color perdiste,8,cBlanco,bgRojoClaro
-				call BORRA_PLAYER
-
+				cmp score,0000h
+				jz mensaje; Si no se recogieron items, se va directo a mensaje
 				xor si,si
 				add si,4; Omite los dos primeros elementos
 				xor cx,cx
@@ -357,8 +354,12 @@ nada			db 	'          $'
 					add si,2
 					loop loopReinicio
 
-				mov contempo,30
-				temporizador
+				mensaje:
+					posiciona_cursor 11,120
+					imprime_cadena_color perdiste,8,cBlanco,bgRojoClaro
+					call BORRA_PLAYER
+					mov contempo,30
+					temporizador
 
 				mov cx,score
 				cmp cx,hi_score; SI el nuevo score es mayor que hi-score
